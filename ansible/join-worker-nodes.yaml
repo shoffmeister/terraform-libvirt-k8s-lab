@@ -1,4 +1,17 @@
-- hosts: ["control-bootstrap", "nodes"]
+- name: Wait for relevant systems to become reachable
+  hosts: ["control_bootstrap", "nodes"]
+  any_errors_fatal: true
+  gather_facts: false
+  tasks:
+    - name: "Check for available connection"
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+- name: "Joining worker nodes to control plane"
+  hosts: ["control_bootstrap", "nodes"]
+  any_errors_fatal: true
   user: terraform-libvirt
   roles:
     - k8s-nodes
+  vars:
+    BOOTSTRAP_IP: 10.17.3.2
