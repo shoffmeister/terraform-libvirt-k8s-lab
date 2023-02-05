@@ -25,7 +25,7 @@ variable "control-volume-size" {
 variable "control-image" {
   description = "Which qcow2 image to use for the base OS"
   type        = string
-  default     = "https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+  nullable    = false
 }
 
 variable "control-volume-prefix" {
@@ -61,7 +61,7 @@ variable "nodes-volume-size" {
 variable "nodes-image" {
   description = "Which qcow2 image to use for the base OS"
   type        = string
-  default     = "https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+  nullable    = false
 }
 
 variable "nodes-volume-prefix" {
@@ -72,5 +72,10 @@ variable "nodes-volume-prefix" {
 
 variable "ssh-public-key" {
   description = "ssh-rsa key for terraform-libvirt user"
-  default     = ""
+  type        = string 
+  default     = "<dummy - must be replaced via command-line option -var>"
+  validation {
+    condition = length(var.ssh-public-key) > 0
+    error_message = "Must provide an SSH public key as a parameter"
+  }
 }

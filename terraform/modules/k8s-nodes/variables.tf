@@ -25,7 +25,7 @@ variable "size" {
 variable "image" {
   description = "Which qcow2 image to use for the base OS"
   type        = string
-  default     = "https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+  default     = "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
 }
 
 variable "volume-prefix" {
@@ -53,11 +53,17 @@ variable "gateway" {
 
 variable "nameservers" {
   description = "Resolvers for k8snet"
-  type        = list
-  default     = ["10.0.0.10", "1.1.1.1"]
+  type        = list(string)
+  default     = ["1.1.1.1"]
+  # default     = ["10.0.0.10", "1.1.1.1"]
 }
 
 variable "ssh-public-key" {
-  description = "ssh-rsa key for terraform-libvirt user"
+  description = "ssh-rsa key for user terraform-libvirt"
+  type        = string 
   default     = ""
+  validation {
+    condition = length(var.ssh-public-key) > 0
+    error_message = "Must provide an SSH public key as a parameter"
+  }
 }
