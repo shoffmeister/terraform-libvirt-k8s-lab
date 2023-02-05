@@ -34,9 +34,9 @@ frontend apiserver
 # round robin balancing for apiserver
 #---------------------------------------------------------------------
 backend apiserver
+    mode tcp
     option httpchk GET /healthz
     http-check expect status 200
-    mode tcp
     option ssl-hello-chk
     balance roundrobin
         server {{HOST2_ID}} {{HOST2_ADDRESS}}:{{APISERVER_SRC_PORT}} check
