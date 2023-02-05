@@ -1,2 +1,7 @@
+# Terraform local provider state tracking
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
 *.terraform
 join-command.sh
