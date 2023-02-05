@@ -1,8 +1,10 @@
 ---
-  - name: Reset the Kubernetes cluster using kubeadm
-    command: kubeadm reset --force
+- name: Reset the Kubernetes cluster using kubeadm
+  ansible.builtin.shell:
+    cmd: |
+      kubeadm reset --force
 
-  - name: Remove kubeconfig
-    file:
-     path: /root/.kube
-     state: absent
+- name: Remove kubeconfig
+  file:
+    path: /root/.kube
+    state: absent

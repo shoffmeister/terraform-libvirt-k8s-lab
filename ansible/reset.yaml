@@ -1,4 +1,5 @@
 - hosts: all
+  any_errors_fatal: true
   user: terraform-libvirt
   become: true
   roles:
