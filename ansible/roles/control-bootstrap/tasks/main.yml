@@ -1,113 +1,90 @@
 ---
-  - name: Wait for SSH
-    wait_for:
-      port: 22
+- name: "Pull Kubernetes images"
+  become: true
+  ansible.builtin.shell:
+    cmd: |
+      kubeadm config images pull
+  changed_when: true
 
-  - name: Wait for k8s utilities to be installed
-    wait_for:
-      path: /etc/kubernetes/manifests
 
-  - name: Copy keepalived template config to control plane nodes
-    become: true
-    template:
-      src: keepalived.conf.j2
-      dest: /usr/local/etc/keepalived.conf
-      owner: root
-      group: root
-      mode: 0640
-    vars:
-      STATE: "{{ 'MASTER' if ansible_facts['default_ipv4']['address'] == '10.17.3.2' else 'BACKUP'}}"
-      PRIORITY: "{{ '101' if ansible_facts['default_ipv4']['address'] == '10.17.3.2' else '100'}}"
+- name: Initialize the Kubernetes cluster using kubeadm
+  become: true
+  ansible.builtin.shell:
+    cmd: |
+      kubeadm init --control-plane-endpoint '{{ APISERVER_VIP }}:{{ APISERVER_DEST_PORT }}' --upload-certs \
+        --ignore-preflight-errors=FileAvailable--etc-kubernetes-manifests
+  changed_when: true
+  when: ansible_facts['default_ipv4']['address'] == BOOTSTRAP_IP
 
-  - name: Copy keepalived check to control plane nodes
-    become: true
-    template:
-      src: check_apiserver.sh.j2
-      dest: /usr/local/etc/check_apiserver.sh
-      owner: root
-      group: root
-      mode: 0750
+- name: Generate a control plane certificate for HA nodes
+  become: true
+  ansible.builtin.shell:
+    executable: /usr/bin/bash
+    cmd: |
+      set -o pipefail
+      kubeadm init phase upload-certs --upload-certs 2> /dev/null | tail -n 1
+  register: join_certificate
+  when: ansible_facts['default_ipv4']['address'] == BOOTSTRAP_IP
 
-  - name: Copy keepalived k8s manifest to control plane nodes
-    become: true
-    copy:
-      src: keepalived.yaml
-      dest: /etc/kubernetes/manifests/keepalived.yaml
-      owner: root
-      group: root
-      mode: 0640
+- name: Prepare the command to join the Kubernetes cluster
+  become: true
+  ansible.builtin.shell:
+    executable: /usr/bin/bash
+    cmd: |
+      set -o pipefail
+      kubeadm token create --print-join-command --certificate-key {{ join_certificate.stdout }} \
+        | echo "$(cat -) --ignore-preflight-errors=FileAvailable--etc-kubernetes-manifests"
+  register: join_command
+  when: ansible_facts['default_ipv4']['address'] == BOOTSTRAP_IP
 
-  - name: Copy haproxy template config to control plane nodes
-    become: true
-    template:
-      src: haproxy.cfg.j2
-      dest: /usr/local/etc/haproxy.cfg
-      owner: root
-      group: root
-      mode: 0750
-    # vars:
-    #   HOST2_ID: k8s-controllers-2
-    #   HOST3_ID: k8s-controllers-3
-    #   HOST4_ID: k8s-controllers-4
-    #   HOST2_ADDRESS: 10.17.3.2
-    #   HOST3_ADDRESS: 10.17.3.3
-    #   HOST4_ADDRESS: 10.17.3.4
+- name: Set join control plane command
+  ansible.builtin.set_fact:
+    join_control_plane_command: "{{ join_command.stdout }}"
+  when: ansible_facts['default_ipv4']['address'] == BOOTSTRAP_IP
 
-  - name: Copy haproxy k8s manifest to control plane
-    become: true
-    template:
-      src: haproxy.yaml.j2
-      dest: /etc/kubernetes/manifests/haproxy.yaml
-      owner: root
-      group: root
-      mode: 0640
 
-  - name: Initialize the Kubernetes cluster using kubeadm
-    become: true
-    command: kubeadm init --control-plane-endpoint '10.17.3.254:8080' --upload-certs --ignore-preflight-errors=DirAvailable--etc-kubernetes-manifests
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
+- name: Join the other control plane nodes to create a cluster
+  become: true
+  # Without throttling, the combination of HAProxy and keepalived
+  # many result in an API server not _really_ being _ready_
+  # The result of that then can be timeouts talking to the
+  # affected cluster node's etcd, for instance, resulting in
+  # a totally broken cluster (which cannot be repaired by
+  # kubeadm reset, it appears)
+  throttle: 1
+  ansible.builtin.shell:
+    cmd: |
+      {{ hostvars['10.17.3.2'].join_control_plane_command }}
+  changed_when: true
+  when: ansible_facts['default_ipv4']['address'] != BOOTSTRAP_IP
 
-  - name: Generate a control plane certificate for HA nodes
-    become: true
-    shell: kubeadm init phase upload-certs --upload-certs 2> /dev/null|tail -n 1
-    register: join_certificate
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
+- name: Setup kubeconfig
+  become: true
+  ansible.builtin.command: "{{ item }}"
+  with_items:
+    - mkdir -p /root/.kube
+    - cp -i /etc/kubernetes/admin.conf /root/.kube/config
+  changed_when: true
 
-  - name: Initialize the Kubernetes cluster using kubeadm
-    become: true
-    shell: kubeadm token create --print-join-command --certificate-key {{join_certificate.stdout}} | echo "$(cat -) --ignore-preflight-errors=DirAvailable--etc-kubernetes-manifests"
-    register: join_command
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
+######################
 
-  - name: Set join control plane command
-    set_fact:
-      join_control_plane_command: '{{join_command.stdout}}'
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
+- name: Wait for Kubernetes API server to be available everywhere
+  ansible.builtin.wait_for:
+    port: 6443
 
-  - name: Wait for kube api to be available, then set up CNI overlay
-    wait_for:
-      port: 6443
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
+- name: Install Cilium CNI overlay into cluster
+  ansible.builtin.shell:
+    cmd: |
+      CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/master/stable.txt)
+      CLI_ARCH=amd64
+      if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+      curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+      sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+      sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+      rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+      cilium install
 
-  - name: Install cilium pod network
-    become: true
-    command: kubectl --kubeconfig /etc/kubernetes/admin.conf create -f https://raw.githubusercontent.com/cilium/cilium/v1.9/install/kubernetes/quick-install.yaml
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
-
-  - name: Wait for cilium
-    wait_for:
-      port: 4240
-    when: ansible_facts['default_ipv4']['address'] == "10.17.3.2"
-
-  - name: Join the node to the cluster
-    become: true
-    shell: "{{ hostvars['10.17.3.2'].join_control_plane_command }}"
-    when: ansible_facts['default_ipv4']['address'] != "10.17.3.2"
-
-  - name: Setup kubeconfig
-    become: true
-    command: "{{ item }}"
-    with_items:
-     - mkdir -p /root/.kube
-     - cp -i /etc/kubernetes/admin.conf /root/.kube/config
-
+- name: Wait for Cilium to be available
+  ansible.builtin.wait_for:
+    port: 4240
+  # amend timeout virtual machine

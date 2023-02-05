@@ -1,17 +1,40 @@
-- hosts: control_plane
+- name: "Wait for control plane systems to become reachable"
+  hosts: control_plane
+  any_errors_fatal: true
+  gather_facts: false
+  tasks:
+    - name: "Check for available connection"
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+- name: "Initialize all control plane hosts"
+  hosts: control_plane
+  any_errors_fatal: true
   user: terraform-libvirt
   roles:
-  - control-bootstrap
+    - control-plane
   vars:
-    - INTERFACE: ens3
-    - ROUTER_ID: 51
-    - AUTH_PASS: terraform-libvirt-linux
-    - APISERVER_VIP: 10.17.3.254
-    - APISERVER_DEST_PORT: 8080
-    - APISERVER_SRC_PORT: 6443
-    - HOST2_ID: k8s-controllers-2
-    - HOST3_ID: k8s-controllers-3
-    - HOST4_ID: k8s-controllers-4
-    - HOST2_ADDRESS: 10.17.3.2
-    - HOST3_ADDRESS: 10.17.3.3
-    - HOST4_ADDRESS: 10.17.3.4
+    INTERFACE: "ens3"
+    ROUTER_ID: 51
+    AUTH_PASS: terraform-libvirt-linux
+    APISERVER_VIP: 10.17.3.254
+    APISERVER_DEST_PORT: 8080
+    APISERVER_SRC_PORT: 6443
+    HOST2_ID: k8s-controllers-2
+    HOST3_ID: k8s-controllers-3
+    HOST4_ID: k8s-controllers-4
+    HOST2_ADDRESS: 10.17.3.2
+    HOST3_ADDRESS: 10.17.3.3
+    HOST4_ADDRESS: 10.17.3.4
+
+- name: "Bootstrap the cluster"
+  hosts: control_plane
+  any_errors_fatal: true
+  user: terraform-libvirt
+  roles:
+    - control-bootstrap
+  vars:
+    BOOTSTRAP_IP: 10.17.3.2
+    APISERVER_VIP: 10.17.3.254
+    APISERVER_DEST_PORT: 8080
+    APISERVER_SRC_PORT: 6443
