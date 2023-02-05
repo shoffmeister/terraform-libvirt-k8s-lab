@@ -1,7 +1,7 @@
 ---
-  - name: Fetch kubeconfig
-    become: true
-    fetch:
-      src: /etc/kubernetes/admin.conf
-      dest: "{{playbook_dir}}/"
-      flat: true
+- name: Fetch kubeconfig
+  become: true
+  ansible.builtin.fetch:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ playbook_dir }}/"
+    flat: true
