@@ -23,8 +23,7 @@ spec:
   volumes:
   - name: config
     hostPath:
-      path: /usr/local/etc/keepalived.conf
-    
+      path: /usr/local/etc/keepalived.conf  
   - name: check
     hostPath:
       path: /usr/local/etc/check_apiserver.sh    

@@ -15,16 +15,16 @@ spec:
         - NET_BROADCAST
         - NET_RAW
     volumeMounts:
-    - mountPath: /usr/local/etc/keepalived/keepalived.conf
-      name: config
-    - mountPath: /etc/keepalived/check_apiserver.sh
-      name: check
+    - name: config
+      mountPath: /usr/local/etc/keepalived/keepalived.conf
+    - name: check
+      mountPath: /etc/keepalived/check_apiserver.sh
   hostNetwork: true
   volumes:
-  - hostPath:
+  - name: config
+    hostPath:
       path: /usr/local/etc/keepalived.conf
-    name: config
-  - hostPath:
-      path: /usr/local/etc/check_apiserver.sh
-    name: check
+  - name: check
+    hostPath:
+      path: /usr/local/etc/check_apiserver.sh   
 status: {}
